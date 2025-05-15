@@ -12,5 +12,5 @@ textColor = "#FFFFFF"
 font = "sans serif"
 
 [client]
-toolbarMode = "minimal"
+toolbarMode = "none"
 showSidebarNavigation = true
