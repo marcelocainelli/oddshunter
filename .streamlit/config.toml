@@ -1,0 +1,16 @@
+[browser]
+gatherUsageStats = false
+
+[server]
+enableStaticServing = true
+
+[theme]
+primaryColor = "#0A2239"
+backgroundColor = "#0A2239"
+secondaryBackgroundColor = "#2A7A7B"
+textColor = "#FFFFFF"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+showSidebarNavigation = true

@@ -262,7 +262,7 @@ if st.session_state.odds_data:
 else: st.warning("Aguardando dados. Clique em 'Atualizar Agora' ou aguarde a atualização automática.")
 
 st.markdown("<hr style='border: 1px solid #2A7A7B;'>", unsafe_allow_html=True)
-st.caption(f"OddsHunter v1.1 (Branded) - Desenvolvido por Manus AI. Identidade Visual aplicada.")
+st.caption(f"OddsHunter v1.1 (Branded) - Desenvolvido por MDC. Identidade Visual aplicada.")
 
 # Adicionar informações sobre o deploy permanente
 st.sidebar.markdown("---")
