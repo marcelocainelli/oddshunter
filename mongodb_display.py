@@ -64,11 +64,10 @@ def display_mongodb_status(uri):
                     st.markdown("**Configurações:**")
                     for option in options_found:
                         st.markdown(f"- {option}")
-            
-            # Exibir a URI mascarada para referência
+              # Exibir a URI mascarada para referência
             masked_uri = mask_mongodb_uri(uri)
-            with st.expander("Mostrar URI (mascarada)"):
-                st.code(masked_uri, language="text")
+            st.markdown("**URI Mascarada:**")
+            st.code(masked_uri, language="text")
             
         # Para MongoDB local, mostrar informações básicas
         elif not is_atlas:
@@ -92,24 +91,22 @@ def display_mongodb_status(uri):
                     # Exibir detalhes mascarados
                     st.markdown(f"**Servidor:** {host_port}")
                     st.markdown("**Autenticação:** Configurada")
-                    
-                    # Exibir URI mascarada
+                      # Exibir URI mascarada
                     masked_uri = f"mongodb://{masked_auth}@{server_part}"
-                    with st.expander("Mostrar URI (mascarada)"):
-                        st.code(masked_uri, language="text")
+                    st.markdown("**URI Mascarada:**")
+                    st.code(masked_uri, language="text")
                 else:
                     # Sem autenticação
                     if "/" in clean_uri:
                         host_port, _ = clean_uri.split("/", 1)
                     else:
                         host_port = clean_uri
-                    
                     st.markdown(f"**Servidor:** {host_port}")
                     st.markdown("**Autenticação:** Não configurada")
                     
                     # Exibir URI completa (sem credenciais para mascarar)
-                    with st.expander("Mostrar URI"):
-                        st.code(uri, language="text")
+                    st.markdown("**URI Completa:**")
+                    st.code(uri, language="text")
             except:
                 # Em caso de erro ao analisar a URI local
                 st.markdown(f"**URI:** Formato não reconhecido")
