@@ -648,13 +648,13 @@ with st.sidebar.expander("Configurações do MongoDB"):
                         
                         # Se a validação básica passar, verificar banco e coleção
                         resultado_verificacao = verificar_banco_colecao(
-                            uri_to_test,
-                            mongodb_db,
+                            uri_to_test,                            mongodb_db,
                             mongodb_collection,
                             connect_timeout=mongodb_timeout,
                             server_selection_timeout=mongodb_timeout
                         )
-                        exibir_status_banco_colecao(resultado_verificacao)                    else:
+                        exibir_status_banco_colecao(resultado_verificacao)
+                    else:
                         st.error(f"❌ {validation_result['mensagem']}")
                         if validation_result.get("erro_detalhes"):
                             st.markdown("#### Detalhes do erro")
