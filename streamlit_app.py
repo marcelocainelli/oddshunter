@@ -196,20 +196,8 @@ should_refresh = manual_refresh or (auto_refresh and (current_time - st.session_
 
 if should_refresh:
     if manual_refresh:
-        with st.spinner("Executando scraping e atualizando dados do Oddspedia..."):
-            try:
-                # Caminho absoluto para garantir execução correta
-                import os
-                script_path = os.path.join(os.path.dirname(__file__), "oddspedia_surebets_playwright.py")
-                result = subprocess.run(["python", script_path], capture_output=True, text=True, check=True)
-                if result.stdout:
-                    st.info(f"Saída do scraping:\n{result.stdout}")
-                if result.stderr:
-                    st.warning(f"Avisos do scraping:\n{result.stderr}")
-            except subprocess.CalledProcessError as e:
-                st.error(f"Erro ao executar o script de scraping:\n{e.stderr or e.stdout or str(e)}")
-            except Exception as e:
-                st.error(f"Erro inesperado ao executar o script de scraping: {e}")
+        # Ambiente cloud: não executa scraping, só recarrega CSV
+        st.info("Atualize o arquivo CSV localmente e faça push no GitHub para atualizar os dados. O scraping automático não está disponível na nuvem.")
     with st.spinner("Carregando dados de surebets do CSV..."):
         try:
             df = pd.read_csv("surebets_oddspedia.csv")
