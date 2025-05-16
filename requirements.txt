@@ -1,6 +1,6 @@
-streamlit
+streamlit>=1.25.0
+protobuf>=4.21.0,<5
 pandas
 numpy
 pillow
 playwright
-protobuf
