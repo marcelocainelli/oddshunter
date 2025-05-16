@@ -1,7 +1,12 @@
 import streamlit as st
 
 # Configuração da página - DEVE ser o primeiro comando do Streamlit
-st.set_page_config(layout="wide", page_title="OddsHunter - Monitoramento de Odds e Arbitragem")
+st.set_page_config(
+    layout="wide", 
+    page_title="OddsHunter - Monitoramento de Odds e Arbitragem",
+    initial_sidebar_state="auto",
+    menu_items=None  # Remove menu items
+)
 
 import pandas as pd
 import numpy as np
@@ -38,8 +43,9 @@ from mongodb_default_config import (
 # Esconder o rodapé padrão do Streamlit e o ícone "Hosted with Streamlit"
 hide_streamlit_style = """
 <style>
+/* Esconder elementos padrão do Streamlit */
 #MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
+footer {visibility: hidden !important;}
 footer:after {
     content:'OddsHunter © 2025'; 
     visibility: visible;
@@ -49,12 +55,30 @@ footer:after {
     top: 2px;
     color: #0A2239;
 }
-/* Esconder o ícone "Hosted with Streamlit" */
+
+/* Esconder TODOS os possíveis elementos de branding do Streamlit */
+/* Abordagem geral para ocultar o badge "Hosted with Streamlit" */
 .viewerBadge_container__1QSob {display: none !important;}
 .viewerBadge_link__1S137 {display: none !important;}
 ._profilePreview_gzau3_63 {display: none !important;}
 div[data-testid="stProfilePreview"] {display: none !important;}
+div[class*="ProfilePreview"] {display: none !important;}
+div[class*="viewerBadge"] {display: none !important;}
+div[class*="stBadge"] {display: none !important;}
+a[class*="viewerBadge"] {display: none !important;}
+div[data-testid="stToolbar"] {display: none !important;}
+div[class*="streamlit-footer"] {display: none !important;}
+div[class*="profilePreview"] {display: none !important;}
+div[class*="stHeader"] {display: none !important;}
+.streamlit-container {padding-bottom: 0px !important;}
+.stDeployButton {display: none !important;}
 #stConnectionStatus {bottom: 4px !important;}
+
+/* Ocultar ícones específicos do canto inferior direito */
+section[data-testid="stSidebar"] div[data-testid="stImage"] {display: none !important;}
+img[alt="Streamlit logo"] {display: none !important;}
+div[class*="stSidebarHosted"] {display: none !important;}
+.styles_hostHideSmall__1esSw {display: none !important;}
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
