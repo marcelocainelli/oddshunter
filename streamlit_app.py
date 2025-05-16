@@ -52,6 +52,8 @@ footer:after {
 /* Esconder o ícone "Hosted with Streamlit" */
 .viewerBadge_container__1QSob {display: none !important;}
 .viewerBadge_link__1S137 {display: none !important;}
+._profilePreview_gzau3_63 {display: none !important;}
+div[data-testid="stProfilePreview"] {display: none !important;}
 #stConnectionStatus {bottom: 4px !important;}
 </style>
 """
