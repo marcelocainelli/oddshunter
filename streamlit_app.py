@@ -1,4 +1,8 @@
 import streamlit as st
+
+# Configuração da página - DEVE ser o primeiro comando do Streamlit
+st.set_page_config(layout="wide", page_title="OddsHunter - Monitoramento de Odds e Arbitragem")
+
 import pandas as pd
 import numpy as np
 import math
@@ -453,9 +457,6 @@ def mostrar_detalhes_oportunidade(oportunidade):
         st.caption(f"Dados extraídos em: {oportunidade['data_extracao']}")
     
     st.divider()
-
-# Configuração da página
-st.set_page_config(layout="wide", page_title="OddsHunter - Monitoramento de Odds e Arbitragem")
 
 # Tentar conectar ao MongoDB Atlas logo na inicialização
 try:
