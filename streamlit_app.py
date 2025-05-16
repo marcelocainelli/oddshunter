@@ -548,36 +548,33 @@ with st.sidebar.expander("Configurações do MongoDB"):
                     st.success("URI do MongoDB Atlas atualizada com sucesso!")
                     # Atualizar a variável global também
                     MONGODB_URI = new_uri
-                else:
-                    # Mostrar erro de validação
+                else:                    # Mostrar erro de validação
                     st.error(f"URI inválida: {validation_result['mensagem']}")
                     if "erro_detalhes" in validation_result and validation_result["erro_detalhes"]:
-                        with st.expander("Detalhes do erro"):
-                            st.code(validation_result["erro_detalhes"])
+                        st.markdown("#### Detalhes do erro")
+                        st.code(validation_result["erro_detalhes"])
             else:
                 st.error("A URI deve começar com 'mongodb+srv://' para o MongoDB Atlas")
-                  # Mostrar ajuda para configuração do MongoDB Atlas
-        with st.expander("Ajuda para configurar MongoDB Atlas"):
-            provide_atlas_uri_guidance()
-            
-        # Mostrar link para documentação detalhada
+                # Mostrar ajuda para configuração do MongoDB Atlas
+        st.markdown("#### Ajuda para configurar MongoDB Atlas")
+        provide_atlas_uri_guidance()
+              # Mostrar link para documentação detalhada
         st.markdown("[📄 Consulte a documentação completa de segurança](mongodb_atlas_setup.md)")
         
         st.caption("A URI do MongoDB Atlas inclui usuário, senha e configurações de conexão")
           # Mostrar informações da conexão atual de forma segura
         display_mongodb_status(MONGODB_URI)
           # Configurações avançadas colapsadas
-        with st.expander("Configurações Avançadas Atlas"):
-            mongodb_db = st.text_input("Database:", value=MONGODB_DATABASE)
-            mongodb_collection = st.text_input("Collection:", value=MONGODB_COLLECTION)
-            mongodb_timeout = st.number_input("Timeout (ms):", value=MONGODB_CONNECT_TIMEOUT, min_value=1000, step=1000)
-            mongodb_max_retries = st.number_input("Máx. Tentativas:", value=MONGODB_MAX_RETRIES, min_value=1, max_value=10, step=1)
+        st.markdown("#### Configurações Avançadas Atlas")
+        mongodb_db = st.text_input("Database:", value=MONGODB_DATABASE)
+        mongodb_collection = st.text_input("Collection:", value=MONGODB_COLLECTION)
+        mongodb_timeout = st.number_input("Timeout (ms):", value=MONGODB_CONNECT_TIMEOUT, min_value=1000, step=1000)
+        mongodb_max_retries = st.number_input("Máx. Tentativas:", value=MONGODB_MAX_RETRIES, min_value=1, max_value=10, step=1)
     else:
         # Configuração MongoDB Local
         mongodb_host = st.text_input("Host MongoDB:", value="localhost")
         mongodb_porta = st.number_input("Porta MongoDB:", value=27017, min_value=1, max_value=65535)
-        
-        # Autenticação (opcional)
+          # Autenticação (opcional)
         usar_autenticacao = st.checkbox("Usar Autenticação", value=False)
         if usar_autenticacao:
             col1_auth, col2_auth = st.columns(2)
@@ -586,12 +583,12 @@ with st.sidebar.expander("Configurações do MongoDB"):
             with col2_auth:
                 mongodb_senha = st.text_input("Senha:", type="password", placeholder="senha")
             mongodb_auth_db = st.text_input("Banco de Auth:", value="admin", placeholder="admin")
-          # Configurações avançadas
-        with st.expander("Configurações Avançadas Local"):
-            mongodb_db = st.text_input("Database:", value=MONGODB_DATABASE)
-            mongodb_collection = st.text_input("Collection:", value=MONGODB_COLLECTION)
-            mongodb_timeout = st.number_input("Timeout (ms):", value=MONGODB_CONNECT_TIMEOUT, min_value=1000, step=1000)
-            mongodb_max_retries = st.number_input("Máx. Tentativas:", value=MONGODB_MAX_RETRIES, min_value=1, max_value=10, step=1)
+        # Configurações avançadas
+        st.markdown("#### Configurações Avançadas Local")
+        mongodb_db = st.text_input("Database:", value=MONGODB_DATABASE)
+        mongodb_collection = st.text_input("Collection:", value=MONGODB_COLLECTION)
+        mongodb_timeout = st.number_input("Timeout (ms):", value=MONGODB_CONNECT_TIMEOUT, min_value=1000, step=1000)
+        mongodb_max_retries = st.number_input("Máx. Tentativas:", value=MONGODB_MAX_RETRIES, min_value=1, max_value=10, step=1)
         
         # Construir URI baseada nas configurações locais
         if usar_autenticacao:
