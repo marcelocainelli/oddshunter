@@ -564,11 +564,10 @@ with st.sidebar.expander("Configurações do MongoDB"):
         st.markdown("[📄 Consulte a documentação completa de segurança](mongodb_atlas_setup.md)")
         
         st.caption("A URI do MongoDB Atlas inclui usuário, senha e configurações de conexão")
-        
-        # Mostrar informações da conexão atual de forma segura
+          # Mostrar informações da conexão atual de forma segura
         display_mongodb_status(MONGODB_URI)
           # Configurações avançadas colapsadas
-        with st.expander("Configurações Avançadas"):
+        with st.expander("Configurações Avançadas Atlas"):
             mongodb_db = st.text_input("Database:", value=MONGODB_DATABASE)
             mongodb_collection = st.text_input("Collection:", value=MONGODB_COLLECTION)
             mongodb_timeout = st.number_input("Timeout (ms):", value=MONGODB_CONNECT_TIMEOUT, min_value=1000, step=1000)
@@ -587,9 +586,8 @@ with st.sidebar.expander("Configurações do MongoDB"):
             with col2_auth:
                 mongodb_senha = st.text_input("Senha:", type="password", placeholder="senha")
             mongodb_auth_db = st.text_input("Banco de Auth:", value="admin", placeholder="admin")
-        
-        # Configurações avançadas
-        with st.expander("Configurações Avançadas"):
+          # Configurações avançadas
+        with st.expander("Configurações Avançadas Local"):
             mongodb_db = st.text_input("Database:", value=MONGODB_DATABASE)
             mongodb_collection = st.text_input("Collection:", value=MONGODB_COLLECTION)
             mongodb_timeout = st.number_input("Timeout (ms):", value=MONGODB_CONNECT_TIMEOUT, min_value=1000, step=1000)
