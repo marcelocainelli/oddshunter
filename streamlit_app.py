@@ -30,6 +30,25 @@ from mongodb_default_config import (
     DEFAULT_MONGODB_MAX_RETRIES
 )
 
+
+# Esconder o rodapé padrão do Streamlit
+hide_streamlit_style = """
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+footer:after {
+    content:'OddsHunter © 2025'; 
+    visibility: visible;
+    display: block;
+    position: relative;
+    padding: 5px;
+    top: 2px;
+    color: #0A2239;
+}
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
 # --- Identidade Visual OddsHunter ---
 LOGO_PATH = "logo_oddshunter_v1.png"  # Caminho relativo para o Streamlit Cloud
 COR_PRIMARIA_AZUL = "#0A2239"
