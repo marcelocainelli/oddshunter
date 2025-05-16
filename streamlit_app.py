@@ -21,6 +21,14 @@ from mongodb_display import display_mongodb_status
 from mongodb_atlas_validator import validate_mongodb_atlas_uri, provide_atlas_uri_guidance
 from security_check import check_for_exposed_credentials, display_security_recommendations
 from env_manager import display_environment_variables, get_environment_variable_status, set_temp_environment_variable
+from mongodb_default_config import (
+    DEFAULT_MONGODB_ATLAS_URI, 
+    DEFAULT_MONGODB_DATABASE, 
+    DEFAULT_MONGODB_COLLECTION,
+    DEFAULT_MONGODB_CONNECT_TIMEOUT,
+    DEFAULT_MONGODB_SERVER_SELECTION_TIMEOUT,
+    DEFAULT_MONGODB_MAX_RETRIES
+)
 
 # --- Identidade Visual OddsHunter ---
 LOGO_PATH = "logo_oddshunter_v1.png"  # Caminho relativo para o Streamlit Cloud
@@ -34,19 +42,20 @@ COR_TEXTO_CINZA_ESCURO = "#333333"
 # --- MongoDB Settings ---
 # Verificar se há URI salva na sessão ou usar padrão
 if 'MONGODB_ATLAS_URI' not in st.session_state:
-    # Inicializar com o valor de ambiente ou com o padrão (URI vazia para maior segurança)
-    atlas_uri = os.getenv('MONGODB_ATLAS_URI', "")
+    # Inicializar com o valor de ambiente, sessão ou padrão
+    # A função get_mongodb_atlas_uri já retorna a URI padrão se não houver configuração
+    atlas_uri = get_mongodb_atlas_uri()
     set_mongodb_atlas_uri(atlas_uri)
 
 # Verificar segurança das credenciais
 security_check_result = check_for_exposed_credentials(show_warning=False)
 
 MONGODB_URI = get_mongodb_atlas_uri()  # Obtém a URI de forma segura
-MONGODB_DATABASE = "oddshunter"
-MONGODB_COLLECTION = "dados_recentes"
-MONGODB_CONNECT_TIMEOUT = 10000  # Timeout de conexão em milissegundos (aumentado para conexão Atlas)
-MONGODB_SERVER_SELECTION_TIMEOUT = 10000  # Timeout de seleção de servidor em milissegundos
-MONGODB_MAX_RETRIES = 3  # Número máximo de tentativas de reconexão
+MONGODB_DATABASE = DEFAULT_MONGODB_DATABASE
+MONGODB_COLLECTION = DEFAULT_MONGODB_COLLECTION
+MONGODB_CONNECT_TIMEOUT = DEFAULT_MONGODB_CONNECT_TIMEOUT
+MONGODB_SERVER_SELECTION_TIMEOUT = DEFAULT_MONGODB_SERVER_SELECTION_TIMEOUT
+MONGODB_MAX_RETRIES = DEFAULT_MONGODB_MAX_RETRIES
 
 # Funções do arbitrage_calculator.py integradas aqui para o protótipo
 def calcular_probabilidade_implicita(odds):
@@ -428,6 +437,21 @@ def mostrar_detalhes_oportunidade(oportunidade):
 
 # Configuração da página
 st.set_page_config(layout="wide", page_title="OddsHunter - Monitoramento de Odds e Arbitragem")
+
+# Tentar conectar ao MongoDB Atlas logo na inicialização
+try:
+    client = conectar_mongodb()
+    if client:
+        st.session_state.mongodb_status = True
+        # Fechar a conexão após o teste inicial
+        client.close()
+    else:
+        st.session_state.mongodb_status = False
+except Exception as e:
+    st.session_state.mongodb_status = False
+    
+# Registrar o timestamp da verificação
+st.session_state.last_mongo_check = time.time()
 
 # Aplicar CSS customizado para cores e fontes (básico)
 # Idealmente, usaríamos um config.toml para temas mais completos, mas para uma demo rápida:

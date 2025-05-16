@@ -5,6 +5,7 @@ import os
 import re
 import streamlit as st
 from urllib.parse import quote_plus
+from mongodb_default_config import DEFAULT_MONGODB_ATLAS_URI
 
 def mask_mongodb_uri(uri):
     """
@@ -54,14 +55,18 @@ def get_mongodb_atlas_uri():
     
     Returns:
         str: URI do MongoDB Atlas
-    """
-    # Tentar obter da variável de ambiente (mais seguro para produção)
+    """    # Tentar obter da variável de ambiente (mais seguro para produção)
     env_uri = os.getenv('MONGODB_ATLAS_URI')
     if env_uri:
         return env_uri
     
     # Se não tiver na variável de ambiente, usar do session_state
-    return st.session_state.get('MONGODB_ATLAS_URI', "")
+    session_uri = st.session_state.get('MONGODB_ATLAS_URI', "")
+    if session_uri:
+        return session_uri
+        
+    # Se não estiver em nenhum lugar, usar a URI padrão
+    return DEFAULT_MONGODB_ATLAS_URI
 
 def set_mongodb_atlas_uri(uri):
     """
