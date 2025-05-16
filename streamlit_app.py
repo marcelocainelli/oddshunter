@@ -531,14 +531,13 @@ with st.sidebar.expander("Configurações do MongoDB"):
         masked_uri = mask_mongodb_uri(get_mongodb_atlas_uri())
         st.info(f"URI atual: {masked_uri}")
         
-        # Campo para nova URI com tipo password
-        new_uri = st.text_input(
+        # Campo para nova URI com tipo password        new_uri = st.text_input(
             "Nova MongoDB Atlas URI:", 
             value="",
             type="password",
             placeholder="mongodb+srv://usuário:senha@cluster.exemplo.mongodb.net/?opções"
         )
-          if new_uri:
+        if new_uri:
             if new_uri.startswith("mongodb+srv://"):
                 # Validar a URI antes de aplicar
                 validation_result = validate_mongodb_atlas_uri(new_uri, test_connection=True)
