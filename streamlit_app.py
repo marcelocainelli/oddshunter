@@ -35,7 +35,7 @@ from mongodb_default_config import (
 )
 
 
-# Esconder o rodapé padrão do Streamlit
+# Esconder o rodapé padrão do Streamlit e o ícone "Hosted with Streamlit"
 hide_streamlit_style = """
 <style>
 #MainMenu {visibility: hidden;}
@@ -49,6 +49,10 @@ footer:after {
     top: 2px;
     color: #0A2239;
 }
+/* Esconder o ícone "Hosted with Streamlit" */
+.viewerBadge_container__1QSob {display: none !important;}
+.viewerBadge_link__1S137 {display: none !important;}
+#stConnectionStatus {bottom: 4px !important;}
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
