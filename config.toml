@@ -1,8 +1,12 @@
 [browser]
 gatherUsageStats = false
+serverAddress = "localhost"
+serverPort = 8501
 
 [server]
 enableStaticServing = true
+runOnSave = true
+maxUploadSize = 50
 
 [theme]
 primaryColor = "#0A2239"
