@@ -4,12 +4,23 @@ import numpy as np
 import math
 import time
 import json
+import os
 from datetime import datetime
 import odds_api_simulator as api # Mantém o simulador de dados (mantido para compatibilidade)
 from PIL import Image # Para carregar o logo
 import subprocess
 import pymongo
 from pymongo import MongoClient
+# Importar utilitários de MongoDB
+from mongodb_utils import testar_conexao_mongodb, verificar_banco_colecao, exibir_status_conexao, exibir_status_banco_colecao
+# Importar cache para MongoDB
+from mongodb_cache import MongoDBCache, obter_dados_com_cache
+# Importar módulo de credenciais seguras
+from mongodb_credentials import mask_mongodb_uri, get_mongodb_atlas_uri, set_mongodb_atlas_uri
+from mongodb_display import display_mongodb_status
+from mongodb_atlas_validator import validate_mongodb_atlas_uri, provide_atlas_uri_guidance
+from security_check import check_for_exposed_credentials, display_security_recommendations
+from env_manager import display_environment_variables, get_environment_variable_status, set_temp_environment_variable
 
 # --- Identidade Visual OddsHunter ---
 LOGO_PATH = "logo_oddshunter_v1.png"  # Caminho relativo para o Streamlit Cloud
@@ -21,9 +32,21 @@ COR_TEXTO_CINZA_CLARO = "#F0F0F0"
 COR_TEXTO_CINZA_ESCURO = "#333333"
 
 # --- MongoDB Settings ---
-MONGODB_URI = "mongodb://localhost:27017/"  # Altere para a URI do seu MongoDB
+# Verificar se há URI salva na sessão ou usar padrão
+if 'MONGODB_ATLAS_URI' not in st.session_state:
+    # Inicializar com o valor de ambiente ou com o padrão (URI vazia para maior segurança)
+    atlas_uri = os.getenv('MONGODB_ATLAS_URI', "")
+    set_mongodb_atlas_uri(atlas_uri)
+
+# Verificar segurança das credenciais
+security_check_result = check_for_exposed_credentials(show_warning=False)
+
+MONGODB_URI = get_mongodb_atlas_uri()  # Obtém a URI de forma segura
 MONGODB_DATABASE = "oddshunter"
 MONGODB_COLLECTION = "dados_recentes"
+MONGODB_CONNECT_TIMEOUT = 10000  # Timeout de conexão em milissegundos (aumentado para conexão Atlas)
+MONGODB_SERVER_SELECTION_TIMEOUT = 10000  # Timeout de seleção de servidor em milissegundos
+MONGODB_MAX_RETRIES = 3  # Número máximo de tentativas de reconexão
 
 # Funções do arbitrage_calculator.py integradas aqui para o protótipo
 def calcular_probabilidade_implicita(odds):
@@ -133,128 +156,241 @@ def encontrar_oportunidades_arbitragem_reais(dados_odds_api, investimento_deseja
 
 # --- MongoDB Integration ---
 def conectar_mongodb():
-    """Estabelece conexão com o MongoDB e retorna o cliente de conexão"""
-    try:
-        # Configure a string de conexão conforme necessário
-        client = MongoClient(MONGODB_URI)
-        return client
-    except Exception as e:
-        st.error(f"Erro ao conectar ao MongoDB: {e}")
-        return None
+    """Estabelece conexão com o MongoDB e retorna o cliente de conexão com retry logic"""
+    retry_count = 0
+    # Obter a URI atual de forma segura
+    current_uri = get_mongodb_atlas_uri() if "mongodb+srv://" in MONGODB_URI else MONGODB_URI
+    
+    # Detectar se é uma conexão Atlas
+    is_atlas = "mongodb+srv://" in current_uri
+    
+    while retry_count < MONGODB_MAX_RETRIES:
+        try:
+            # Configurar opções de cliente
+            client_options = {
+                "connectTimeoutMS": MONGODB_CONNECT_TIMEOUT,
+                "serverSelectionTimeoutMS": MONGODB_SERVER_SELECTION_TIMEOUT
+            }
+            
+            # Adicionar opções específicas para MongoDB Atlas
+            if is_atlas:
+                client_options.update({
+                    "retryWrites": True,
+                    "w": "majority",
+                    "retryReads": True
+                })
+            
+            # Configurar a conexão com as opções
+            client = MongoClient(current_uri, **client_options)
+            
+            # Verificar a conexão tentando obter informações do servidor
+            # Isso falha rapidamente se o servidor não estiver acessível
+            client.server_info()
+            return client
+            
+        except pymongo.errors.ServerSelectionTimeoutError as e:
+            retry_count += 1
+            if retry_count >= MONGODB_MAX_RETRIES:
+                st.error(f"Erro ao conectar ao MongoDB após {MONGODB_MAX_RETRIES} tentativas: {e}")
+                if is_atlas:
+                    st.info("Verifique se suas credenciais do MongoDB Atlas estão corretas e se sua rede permite conexões.")
+                else:
+                    st.info("Verifique se o servidor MongoDB está rodando e acessível no endereço configurado.")
+                return None
+            else:
+                st.warning(f"Tentativa {retry_count} de conectar ao MongoDB falhou. Tentando novamente...")
+                time.sleep(1)  # Esperar 1 segundo antes de tentar novamente
+                
+        except pymongo.errors.OperationFailure as e:
+            st.error(f"Falha de autenticação: {e}")
+            st.info("Verifique usuário e senha do MongoDB.")
+            return None
+                
+        except Exception as e:
+            st.error(f"Erro desconhecido ao conectar ao MongoDB: {e}")
+            st.info("Verifique sua configuração de MongoDB e suas credenciais.")
+            return None
+    
+    return None
 
 def obter_dados_mongodb():
-    """Obtém dados da coleção definida nas configurações"""
+    """Obtém dados da coleção definida nas configurações com melhor tratamento de erros"""
     client = conectar_mongodb()
     if client:
         try:
             db = client[MONGODB_DATABASE]
             collection = db[MONGODB_COLLECTION]
-            dados = list(collection.find())
+            
+            # Obter a URI atual de forma segura
+            current_uri = get_mongodb_atlas_uri() if "mongodb+srv://" in MONGODB_URI else MONGODB_URI
+            
+            # Detectar se é MongoDB Atlas
+            is_atlas = "mongodb+srv://" in current_uri
+            
+            # Executar a consulta com opções específicas para Atlas ou local
+            if is_atlas:
+                # Para Atlas, podemos usar opções mais específicas
+                dados = list(collection.find().limit(1000))  # Limitar quantidade para performance
+            else:
+                # Para MongoDB local
+                dados = list(collection.find())
+                
             client.close()
+            
+            # Verificar se encontrou dados
+            if not dados:
+                if is_atlas:
+                    st.warning(f"A coleção '{MONGODB_COLLECTION}' no banco '{MONGODB_DATABASE}' do MongoDB Atlas está vazia.")
+                else:
+                    st.warning(f"A coleção '{MONGODB_COLLECTION}' no banco '{MONGODB_DATABASE}' está vazia.")
+            
+            # Se temos dados, fazer um backup em CSV
+            if dados:
+                try:
+                    from mongodb_cache import salvar_dados_csv_backup
+                    salvar_dados_csv_backup(dados, "mongodb_backup.csv")
+                except:
+                    pass  # Não interromper se o backup falhar
+            
             return dados
+            
+        except pymongo.errors.OperationFailure as e:
+            st.error(f"Erro de operação no MongoDB: {e}")
+            st.info("Verifique se você tem permissões para acessar este banco de dados e coleção.")
+            client.close()
         except Exception as e:
             st.error(f"Erro ao obter dados do MongoDB: {e}")
             client.close()
+    
+    # Fallback: Tentar usar o CSV local
+    try:
+        st.warning("Tentando usar dados locais de CSV como fallback...")
+        # Tentar primeiro o backup gerado pelo MongoDB
+        csv_file = "mongodb_backup.csv"
+        if not os.path.exists(csv_file):
+            csv_file = "surebets_oddspedia.csv"  # Fallback para o CSV original
+            
+        df = pd.read_csv(csv_file)
+        if not df.empty:
+            # Converter DataFrame para formato similar ao MongoDB
+            dados_fallback = df.to_dict('records')
+            st.success(f"Usando {len(dados_fallback)} registros de dados locais de {csv_file}.")
+            return dados_fallback
+    except Exception as e:
+        st.error(f"Também não foi possível carregar dados de fallback: {e}")
+    
     return []
 
 def processar_oportunidades_mongodb(dados_mongodb, investimento_desejado=100):
-    """Processa os dados do MongoDB e retorna oportunidades formatadas"""
+    """Processa os dados do MongoDB e retorna oportunidades formatadas com melhor tratamento de erros"""
     oportunidades = []
+    registros_com_erro = 0
     
     for item in dados_mongodb:
-        # Verifica se há odds válidas para pelo menos 2 resultados
-        if not item.get('odd_1') or not item.get('odd_2'):
-            continue
-            
-        tipo_mercado = "3-vias" if item.get('odd_3') else "2-vias"
-        lucro_percentual = item.get('lucro_percentual', 0)
-        
-        # Converter odds de string para float
         try:
-            odds_r1 = float(item.get('odd_1', '0').replace(',', '.'))
-            odds_r2 = float(item.get('odd_2', '0').replace(',', '.'))
-            odds_r3 = float(item.get('odd_3', '0').replace(',', '.')) if item.get('odd_3') else 0
-        except (ValueError, TypeError):
-            continue
-            
-        # Pular registros com odds inválidas
-        if odds_r1 <= 1 or odds_r2 <= 1 or (tipo_mercado == "3-vias" and odds_r3 <= 1):
-            continue
-            
-        # Calcular probabilidades implícitas
-        prob_impl_r1 = calcular_probabilidade_implicita(odds_r1)
-        prob_impl_r2 = calcular_probabilidade_implicita(odds_r2)
-        prob_impl_r3 = calcular_probabilidade_implicita(odds_r3) if tipo_mercado == "3-vias" else 0
-        
-        soma_probabilidades = prob_impl_r1 + prob_impl_r2
-        if tipo_mercado == "3-vias":
-            soma_probabilidades += prob_impl_r3
-            
-        if soma_probabilidades < 1:
-            retorno_garantido = investimento_desejado / soma_probabilidades
-            stake1 = retorno_garantido / odds_r1
-            stake2 = retorno_garantido / odds_r2
-            
-            if tipo_mercado == "2-vias":
-                investimento_real_total = stake1 + stake2
-                nomes_resultados = item.get('linha', 'Casa/Fora').split('/')
-                if len(nomes_resultados) < 2:
-                    nomes_resultados = ['Casa', 'Fora']  # Padrão se não tiver informação
-                    
-                oportunidade = {
-                    "tipo_mercado": tipo_mercado,
-                    "oportunidade": True,
-                    "soma_probabilidades_implicitas": soma_probabilidades,
-                    "lucro_percentual_garantido": lucro_percentual,
-                    "detalhes_apostas": [
-                        {"casa": item.get('casa_1', ''), "resultado": nomes_resultados[0], "odd": odds_r1, 
-                         "stake_sugerido": stake1, "retorno_individual": stake1 * odds_r1},
-                        {"casa": item.get('casa_2', ''), "resultado": nomes_resultados[1], "odd": odds_r2, 
-                         "stake_sugerido": stake2, "retorno_individual": stake2 * odds_r2}
-                    ],
-                    "investimento_total_sugerido": investimento_real_total,
-                    "retorno_garantido": retorno_garantido,
-                    "id_evento": str(item.get('_id', '')),
-                    "descricao_evento": item.get('evento', item.get('times', '')),
-                    "esporte": item.get('esporte', ''),
-                    "liga": item.get('liga', ''),
-                    "timestamp": time.time(),
-                    "data_hora_evento": item.get('data_hora', ''),
-                    "data_extracao": item.get('data_extracao', datetime.now())
-                }
-                oportunidades.append(oportunidade)
-            
-            elif tipo_mercado == "3-vias":
-                stake3 = retorno_garantido / odds_r3
-                investimento_real_total = stake1 + stake2 + stake3
-                nomes_resultados = item.get('linha', 'Casa/Empate/Fora').split('/')
-                if len(nomes_resultados) < 3:
-                    nomes_resultados = ['Casa', 'Empate', 'Fora']  # Padrão se não tiver informação
+            # Verifica se há odds válidas para pelo menos 2 resultados
+            if not item.get('odd_1') or not item.get('odd_2'):
+                continue
                 
-                oportunidade = {
-                    "tipo_mercado": tipo_mercado,
-                    "oportunidade": True,
-                    "soma_probabilidades_implicitas": soma_probabilidades,
-                    "lucro_percentual_garantido": lucro_percentual,
-                    "detalhes_apostas": [
-                        {"casa": item.get('casa_1', ''), "resultado": nomes_resultados[0], "odd": odds_r1, 
-                         "stake_sugerido": stake1, "retorno_individual": stake1 * odds_r1},
-                        {"casa": item.get('casa_2', ''), "resultado": nomes_resultados[1], "odd": odds_r2, 
-                         "stake_sugerido": stake2, "retorno_individual": stake2 * odds_r2},
-                        {"casa": item.get('casa_3', ''), "resultado": nomes_resultados[2], "odd": odds_r3, 
-                         "stake_sugerido": stake3, "retorno_individual": stake3 * odds_r3}
-                    ],
-                    "investimento_total_sugerido": investimento_real_total,
-                    "retorno_garantido": retorno_garantido,
-                    "id_evento": str(item.get('_id', '')),
-                    "descricao_evento": item.get('evento', item.get('times', '')),
-                    "esporte": item.get('esporte', ''),
-                    "liga": item.get('liga', ''),
-                    "timestamp": time.time(),
-                    "data_hora_evento": item.get('data_hora', ''),
-                    "data_extracao": item.get('data_extracao', datetime.now())
-                }
-                oportunidades.append(oportunidade)
+            tipo_mercado = "3-vias" if item.get('odd_3') else "2-vias"
+            lucro_percentual = item.get('lucro_percentual', 0)
+            
+            # Converter odds de string para float com tratamento de erros
+            try:
+                # Normalizar diferentes formatos (vírgula/ponto como separador decimal)
+                odds_r1 = float(str(item.get('odd_1', '0')).replace(',', '.'))
+                odds_r2 = float(str(item.get('odd_2', '0')).replace(',', '.'))
+                odds_r3 = float(str(item.get('odd_3', '0')).replace(',', '.')) if item.get('odd_3') else 0
+            except (ValueError, TypeError):
+                registros_com_erro += 1
+                continue
+                
+            # Pular registros com odds inválidas
+            if odds_r1 <= 1 or odds_r2 <= 1 or (tipo_mercado == "3-vias" and odds_r3 <= 1):
+                continue
+                
+            # Calcular probabilidades implícitas
+            prob_impl_r1 = calcular_probabilidade_implicita(odds_r1)
+            prob_impl_r2 = calcular_probabilidade_implicita(odds_r2)
+            prob_impl_r3 = calcular_probabilidade_implicita(odds_r3) if tipo_mercado == "3-vias" else 0
+            
+            soma_probabilidades = prob_impl_r1 + prob_impl_r2
+            if tipo_mercado == "3-vias":
+                soma_probabilidades += prob_impl_r3
+                
+            if soma_probabilidades < 1:
+                retorno_garantido = investimento_desejado / soma_probabilidades
+                stake1 = retorno_garantido / odds_r1
+                stake2 = retorno_garantido / odds_r2
+                
+                if tipo_mercado == "2-vias":
+                    investimento_real_total = stake1 + stake2
+                    nomes_resultados = item.get('linha', 'Casa/Fora').split('/')
+                    if len(nomes_resultados) < 2:
+                        nomes_resultados = ['Casa', 'Fora']  # Padrão se não tiver informação
+                        
+                    oportunidade = {
+                        "tipo_mercado": tipo_mercado,
+                        "oportunidade": True,
+                        "soma_probabilidades_implicitas": soma_probabilidades,
+                        "lucro_percentual_garantido": float(lucro_percentual) if isinstance(lucro_percentual, (int, float, str)) else 0,
+                        "detalhes_apostas": [
+                            {"casa": item.get('casa_1', ''), "resultado": nomes_resultados[0], "odd": odds_r1, 
+                             "stake_sugerido": stake1, "retorno_individual": stake1 * odds_r1},
+                            {"casa": item.get('casa_2', ''), "resultado": nomes_resultados[1], "odd": odds_r2, 
+                             "stake_sugerido": stake2, "retorno_individual": stake2 * odds_r2}
+                        ],
+                        "investimento_total_sugerido": investimento_real_total,
+                        "retorno_garantido": retorno_garantido,
+                        "id_evento": str(item.get('_id', '')),
+                        "descricao_evento": item.get('evento', item.get('times', '')),
+                        "esporte": item.get('esporte', ''),
+                        "liga": item.get('liga', ''),
+                        "timestamp": time.time(),
+                        "data_hora_evento": item.get('data_hora', ''),
+                        "data_extracao": item.get('data_extracao', datetime.now())
+                    }
+                    oportunidades.append(oportunidade)
+                
+                elif tipo_mercado == "3-vias":
+                    stake3 = retorno_garantido / odds_r3
+                    investimento_real_total = stake1 + stake2 + stake3
+                    nomes_resultados = item.get('linha', 'Casa/Empate/Fora').split('/')
+                    if len(nomes_resultados) < 3:
+                        nomes_resultados = ['Casa', 'Empate', 'Fora']  # Padrão se não tiver informação
+                    
+                    oportunidade = {
+                        "tipo_mercado": tipo_mercado,
+                        "oportunidade": True,
+                        "soma_probabilidades_implicitas": soma_probabilidades,
+                        "lucro_percentual_garantido": float(lucro_percentual) if isinstance(lucro_percentual, (int, float, str)) else 0,
+                        "detalhes_apostas": [
+                            {"casa": item.get('casa_1', ''), "resultado": nomes_resultados[0], "odd": odds_r1, 
+                             "stake_sugerido": stake1, "retorno_individual": stake1 * odds_r1},
+                            {"casa": item.get('casa_2', ''), "resultado": nomes_resultados[1], "odd": odds_r2, 
+                             "stake_sugerido": stake2, "retorno_individual": stake2 * odds_r2},
+                            {"casa": item.get('casa_3', ''), "resultado": nomes_resultados[2], "odd": odds_r3, 
+                             "stake_sugerido": stake3, "retorno_individual": stake3 * odds_r3}
+                        ],
+                        "investimento_total_sugerido": investimento_real_total,
+                        "retorno_garantido": retorno_garantido,
+                        "id_evento": str(item.get('_id', '')),
+                        "descricao_evento": item.get('evento', item.get('times', '')),
+                        "esporte": item.get('esporte', ''),
+                        "liga": item.get('liga', ''),
+                        "timestamp": time.time(),
+                        "data_hora_evento": item.get('data_hora', ''),
+                        "data_extracao": item.get('data_extracao', datetime.now())
+                    }
+                    oportunidades.append(oportunidade)
+        except Exception as e:
+            registros_com_erro += 1
+            # Não mostramos o erro na UI para não poluir, mas poderia ser registrado em um log
+            continue
+    
+    # Se houve erros, avisar discretamente
+    if registros_com_erro > 0:
+        st.caption(f"Nota: {registros_com_erro} registros foram ignorados devido a erros de formato.")
                 
     return oportunidades
 
@@ -346,24 +482,248 @@ auto_refresh = st.sidebar.checkbox("Atualização Automática", value=True)
 refresh_interval = st.sidebar.slider("Intervalo de Atualização (s):", min_value=5, max_value=60, value=15, step=5)
 limiar_lucro = st.sidebar.slider("Limiar Mínimo de Lucro (%):", min_value=0.1, max_value=10.0, value=0.5, step=0.1)
 
+# Cache e controle de dados
+with st.sidebar.expander("Controle de Cache"):
+    st.markdown("#### Cache de Dados MongoDB")
+    
+    # Mostrar status atual do cache
+    if 'mongodb_cache' in st.session_state:
+        cache = st.session_state.mongodb_cache
+        if cache.is_valid():
+            st.success("Cache válido")
+            st.info(f"Idade do cache: {cache.get_age_seconds() / 60:.1f} minutos")
+        else:
+            st.warning("Cache expirado ou vazio")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Limpar Cache"):
+                cache.invalidate()
+                st.success("Cache invalidado!")
+                st.session_state.data_source = "sem dados"
+                st.experimental_rerun()
+        
+        with col2:
+            # Permitir ajustar o tempo de validade do cache
+            tempo_cache = st.number_input(
+                "Validade (min)", 
+                value=cache.max_age_seconds // 60,
+                min_value=1,
+                max_value=60,
+                step=5
+            )
+            cache.max_age_seconds = tempo_cache * 60  # Converter para segundos
+
 # Configurações MongoDB (colapsado por padrão)
 with st.sidebar.expander("Configurações do MongoDB"):
-    mongodb_uri = st.text_input("MongoDB URI:", value=MONGODB_URI)
-    mongodb_db = st.text_input("MongoDB Database:", value=MONGODB_DATABASE)
-    mongodb_collection = st.text_input("MongoDB Collection:", value=MONGODB_COLLECTION)
+    # Tipo de conexão
+    connection_type = st.radio(
+        "Tipo de Conexão:", 
+        ["MongoDB Atlas", "MongoDB Local"],
+        index=0 if "mongodb+srv://" in MONGODB_URI else 1
+    )
     
-    if st.button("Atualizar Configurações MongoDB"):
-        MONGODB_URI = mongodb_uri
-        MONGODB_DATABASE = mongodb_db
-        MONGODB_COLLECTION = mongodb_collection
-        st.success("Configurações do MongoDB atualizadas com sucesso!")
+    if connection_type == "MongoDB Atlas":
+        # Configuração MongoDB Atlas - usando sistema seguro de credenciais
+        st.markdown("#### Configuração MongoDB Atlas")
+        
+        # Mostrar URI atual de forma mascarada
+        masked_uri = mask_mongodb_uri(get_mongodb_atlas_uri())
+        st.info(f"URI atual: {masked_uri}")
+        
+        # Campo para nova URI com tipo password
+        new_uri = st.text_input(
+            "Nova MongoDB Atlas URI:", 
+            value="",
+            type="password",
+            placeholder="mongodb+srv://usuário:senha@cluster.exemplo.mongodb.net/?opções"
+        )
+          if new_uri:
+            if new_uri.startswith("mongodb+srv://"):
+                # Validar a URI antes de aplicar
+                validation_result = validate_mongodb_atlas_uri(new_uri, test_connection=True)
+                
+                if validation_result["valido"]:
+                    # Atualizar a URI apenas se for válida
+                    set_mongodb_atlas_uri(new_uri)
+                    st.success("URI do MongoDB Atlas atualizada com sucesso!")
+                    # Atualizar a variável global também
+                    MONGODB_URI = new_uri
+                else:
+                    # Mostrar erro de validação
+                    st.error(f"URI inválida: {validation_result['mensagem']}")
+                    if "erro_detalhes" in validation_result and validation_result["erro_detalhes"]:
+                        with st.expander("Detalhes do erro"):
+                            st.code(validation_result["erro_detalhes"])
+            else:
+                st.error("A URI deve começar com 'mongodb+srv://' para o MongoDB Atlas")
+                  # Mostrar ajuda para configuração do MongoDB Atlas
+        with st.expander("Ajuda para configurar MongoDB Atlas"):
+            provide_atlas_uri_guidance()
+            
+        # Mostrar link para documentação detalhada
+        st.markdown("[📄 Consulte a documentação completa de segurança](mongodb_atlas_setup.md)")
+        
+        st.caption("A URI do MongoDB Atlas inclui usuário, senha e configurações de conexão")
+        
+        # Mostrar informações da conexão atual de forma segura
+        display_mongodb_status(MONGODB_URI)
+          # Configurações avançadas colapsadas
+        with st.expander("Configurações Avançadas"):
+            mongodb_db = st.text_input("Database:", value=MONGODB_DATABASE)
+            mongodb_collection = st.text_input("Collection:", value=MONGODB_COLLECTION)
+            mongodb_timeout = st.number_input("Timeout (ms):", value=MONGODB_CONNECT_TIMEOUT, min_value=1000, step=1000)
+            mongodb_max_retries = st.number_input("Máx. Tentativas:", value=MONGODB_MAX_RETRIES, min_value=1, max_value=10, step=1)
+    else:
+        # Configuração MongoDB Local
+        mongodb_host = st.text_input("Host MongoDB:", value="localhost")
+        mongodb_porta = st.number_input("Porta MongoDB:", value=27017, min_value=1, max_value=65535)
+        
+        # Autenticação (opcional)
+        usar_autenticacao = st.checkbox("Usar Autenticação", value=False)
+        if usar_autenticacao:
+            col1_auth, col2_auth = st.columns(2)
+            with col1_auth:
+                mongodb_usuario = st.text_input("Usuário:", placeholder="usuário")
+            with col2_auth:
+                mongodb_senha = st.text_input("Senha:", type="password", placeholder="senha")
+            mongodb_auth_db = st.text_input("Banco de Auth:", value="admin", placeholder="admin")
+        
+        # Configurações avançadas
+        with st.expander("Configurações Avançadas"):
+            mongodb_db = st.text_input("Database:", value=MONGODB_DATABASE)
+            mongodb_collection = st.text_input("Collection:", value=MONGODB_COLLECTION)
+            mongodb_timeout = st.number_input("Timeout (ms):", value=MONGODB_CONNECT_TIMEOUT, min_value=1000, step=1000)
+            mongodb_max_retries = st.number_input("Máx. Tentativas:", value=MONGODB_MAX_RETRIES, min_value=1, max_value=10, step=1)
+        
+        # Construir URI baseada nas configurações locais
+        if usar_autenticacao:
+            from mongodb_utils import construir_uri_mongodb
+            mongodb_uri = construir_uri_mongodb(
+                mongodb_host, 
+                mongodb_porta, 
+                mongodb_usuario if usar_autenticacao else None,
+                mongodb_senha if usar_autenticacao else None,
+                mongodb_auth_db if usar_autenticacao else None
+            )
+        else:
+            mongodb_uri = f"mongodb://{mongodb_host}:{mongodb_porta}/"
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Atualizar Configurações"):
+            # Atualizar as configurações globais
+            if connection_type == "MongoDB Atlas":
+                # Usando a URI já atualizada via set_mongodb_atlas_uri
+                MONGODB_URI = get_mongodb_atlas_uri()
+            else:
+                # URI do MongoDB local
+                MONGODB_URI = mongodb_uri
+            
+            MONGODB_DATABASE = mongodb_db
+            MONGODB_COLLECTION = mongodb_collection
+            MONGODB_CONNECT_TIMEOUT = mongodb_timeout
+            MONGODB_SERVER_SELECTION_TIMEOUT = mongodb_timeout
+            MONGODB_MAX_RETRIES = mongodb_max_retries
+            
+            st.success("Configurações atualizadas com sucesso!")
+            
+            # Mostrar a URI gerada de forma segura
+            if connection_type == "MongoDB Atlas":
+                st.info(f"URI: {mask_mongodb_uri(MONGODB_URI)}")
+            else:
+                # Mascarar senha se houver autenticação
+                if usar_autenticacao and mongodb_senha:
+                    uri_masked = mongodb_uri.replace(mongodb_senha, "*" * len(mongodb_senha))
+                    st.info(f"URI: {uri_masked}")                else:
+                    st.info(f"URI: {mongodb_uri}")
+    
+    with col2:
+        if st.button("Testar Conexão"):
+            with st.spinner("Testando conexão..."):
+                # Obter a URI correta com base no tipo de conexão
+                uri_to_test = get_mongodb_atlas_uri() if connection_type == "MongoDB Atlas" else mongodb_uri
+                
+                # Para MongoDB Atlas, usar nosso validador avançado
+                if connection_type == "MongoDB Atlas":
+                    validation_result = validate_mongodb_atlas_uri(uri_to_test, test_connection=True, timeout=mongodb_timeout)
+                    
+                    if validation_result["valido"]:
+                        st.success(f"✅ {validation_result['mensagem']}")
+                        
+                        # Se a validação básica passar, verificar banco e coleção
+                        resultado_verificacao = verificar_banco_colecao(
+                            uri_to_test,
+                            mongodb_db,
+                            mongodb_collection,
+                            connect_timeout=mongodb_timeout,
+                            server_selection_timeout=mongodb_timeout
+                        )
+                        exibir_status_banco_colecao(resultado_verificacao)
+                    else:
+                        st.error(f"❌ {validation_result['mensagem']}")
+                        if validation_result.get("erro_detalhes"):
+                            with st.expander("Detalhes do erro"):
+                                st.code(validation_result["erro_detalhes"])
+                # Para MongoDB local, usar o fluxo normal
+                else:
+                    # Testar conexão básica
+                    resultado_teste = testar_conexao_mongodb(
+                        uri_to_test, 
+                        connect_timeout=mongodb_timeout,
+                        server_selection_timeout=mongodb_timeout
+                    )
+                    exibir_status_conexao(resultado_teste)
+                    
+                    # Se a conexão básica funcionar, verificar banco e coleção
+                    if resultado_teste["status"]:
+                        resultado_verificacao = verificar_banco_colecao(
+                            uri_to_test,
+                            mongodb_db,
+                            mongodb_collection,
+                            connect_timeout=mongodb_timeout,
+                            server_selection_timeout=mongodb_timeout
+                        )
+                        exibir_status_banco_colecao(resultado_verificacao)
 
 # Botão para atualização manual
-col1_main, col2_main = st.columns([3, 1])
+col1_main, col2_main, col3_main = st.columns([3, 1, 1])
 with col1_main:
     st.markdown(f"<h3 style='color:{COR_TEXTO_BRANCO};'>Dados de Odds do MongoDB em Tempo Real</h3>", unsafe_allow_html=True)
 with col2_main:
     manual_refresh = st.button("Atualizar Agora")
+with col3_main:
+    # Verificação rápida do status do MongoDB para o indicador
+    if 'mongodb_status' not in st.session_state:
+        st.session_state.mongodb_status = False
+    
+    # Executamos a verificação apenas periodicamente para não sobrecarregar
+    if time.time() - st.session_state.get('last_mongo_check', 0) > 60:  # verificar a cada 60 segundos
+        try:
+            # Obter a URI atual de forma segura
+            current_uri = get_mongodb_atlas_uri() if "mongodb+srv://" in MONGODB_URI else MONGODB_URI
+            
+            # Verificação rápida sem mostrar erros na UI
+            cliente = MongoClient(
+                current_uri,
+                connectTimeoutMS=2000,  # timeout mais curto para ser rápido
+                serverSelectionTimeoutMS=2000
+            )
+            cliente.server_info()
+            st.session_state.mongodb_status = True
+            cliente.close()
+        except:
+            st.session_state.mongodb_status = False
+        st.session_state.last_mongo_check = time.time()
+    
+    # Mostrar o indicador de status
+    is_atlas = "mongodb+srv://" in MONGODB_URI
+    connection_type = "MongoDB Atlas" if is_atlas else "MongoDB Local"
+    
+    if st.session_state.mongodb_status:
+        st.markdown(f"<h5 style='color:{COR_SECUNDARIA_VERDE};'>●</h5> {connection_type} Conectado", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<h5 style='color:red;'>●</h5> {connection_type} Desconectado", unsafe_allow_html=True)
 
 if 'last_refresh' not in st.session_state:
     st.session_state.last_refresh = 0
@@ -371,6 +731,15 @@ if 'odds_data' not in st.session_state:
     st.session_state.odds_data = None
 if 'oportunidades' not in st.session_state:
     st.session_state.oportunidades = []
+if 'mongodb_cache' not in st.session_state:
+    # Inicializar cache do MongoDB (válido por 30 minutos)
+    st.session_state.mongodb_cache = MongoDBCache(max_age_seconds=1800)
+if 'mongodb_status' not in st.session_state:
+    st.session_state.mongodb_status = False
+if 'last_mongo_check' not in st.session_state:
+    st.session_state.last_mongo_check = 0
+if 'data_source' not in st.session_state:
+    st.session_state.data_source = "sem dados"
 
 current_time = time.time()
 should_refresh = manual_refresh or (auto_refresh and (current_time - st.session_state.last_refresh) > refresh_interval)
@@ -378,18 +747,53 @@ should_refresh = manual_refresh or (auto_refresh and (current_time - st.session_
 if should_refresh:
     with st.spinner("Carregando dados de surebets do MongoDB..."):
         try:
-            # Obter dados do MongoDB
-            dados_mongodb = obter_dados_mongodb()
-            if dados_mongodb:
+            # Obter dados do MongoDB com cache
+            dados_mongodb, origem_dados, status = obter_dados_com_cache(
+                obter_dados_mongodb,  # Função original para obter dados
+                cache_instance=st.session_state.mongodb_cache,
+                force_refresh=manual_refresh  # Forçar atualização apenas no botão manual
+            )
+            
+            if status and dados_mongodb:
                 # Processar os dados em oportunidades
                 st.session_state.oportunidades = processar_oportunidades_mongodb(dados_mongodb, investimento_usuario)
                 st.session_state.last_refresh = current_time
-                st.success(f"Dados atualizados com sucesso! {len(st.session_state.oportunidades)} oportunidades encontradas.")
+                st.session_state.data_source = origem_dados
+                
+                # Mensagem adaptativa baseada na origem dos dados
+                if origem_dados == "mongodb":
+                    # Obter a URI atual de forma segura
+                    current_uri = get_mongodb_atlas_uri() if "mongodb+srv://" in MONGODB_URI else MONGODB_URI
+                    
+                    # Indica se é MongoDB Atlas ou local
+                    is_atlas = "mongodb+srv://" in current_uri
+                    mongodb_type = "MongoDB Atlas" if is_atlas else "MongoDB Local"
+                    st.success(f"Dados atualizados de {mongodb_type}! {len(st.session_state.oportunidades)} oportunidades encontradas.")
+                elif origem_dados == "cache":
+                    # Mostrar idade do cache
+                    cache_age = st.session_state.mongodb_cache.get_age_seconds() / 60  # em minutos
+                    st.info(f"Usando dados em cache (de {cache_age:.1f} minutos atrás). {len(st.session_state.oportunidades)} oportunidades.")
+                elif origem_dados == "backup":
+                    st.warning(f"Usando dados de backup local. {len(st.session_state.oportunidades)} oportunidades.")
             else:
-                st.warning("Não foi possível obter dados do MongoDB ou não há dados disponíveis.")
+                st.error("Não foi possível obter dados do MongoDB, cache ou backup.")
         except Exception as e:
             st.error(f"Erro ao processar dados: {e}")
-    st.caption(f"Última atualização: {datetime.fromtimestamp(current_time).strftime('%H:%M:%S')}")
+    
+    # Mostrar informação sobre última atualização
+    # Obter a URI atual de forma segura
+    current_uri = get_mongodb_atlas_uri() if "mongodb+srv://" in MONGODB_URI else MONGODB_URI
+    is_atlas = "mongodb+srv://" in current_uri
+    db_type = "MongoDB Atlas" if is_atlas else "MongoDB"
+    st.caption(f"Última atualização: {datetime.fromtimestamp(current_time).strftime('%H:%M:%S')} | Fonte: {st.session_state.data_source} ({db_type})")
+elif st.session_state.oportunidades:
+    # Se não estiver atualizando, mostrar de onde vieram os dados atualmente exibidos
+    idade_dados = (current_time - st.session_state.last_refresh) / 60  # em minutos
+    # Obter a URI atual de forma segura
+    current_uri = get_mongodb_atlas_uri() if "mongodb+srv://" in MONGODB_URI else MONGODB_URI
+    is_atlas = "mongodb+srv://" in current_uri
+    db_type = "MongoDB Atlas" if is_atlas else "MongoDB"
+    st.caption(f"Dados de {idade_dados:.1f} minutos atrás | Fonte: {st.session_state.data_source} ({db_type})")
 
 st.markdown(f"<h2 style='color:{COR_TEXTO_BRANCO};'>🚨 Oportunidades de Arbitragem</h2>", unsafe_allow_html=True)
 if st.session_state.oportunidades:
@@ -476,3 +880,18 @@ st.sidebar.markdown("---")
 st.sidebar.markdown(f"<h3 style='color:{COR_TEXTO_BRANCO};'>Sobre este Deploy</h3>", unsafe_allow_html=True)
 st.sidebar.markdown("Esta é uma versão 2.0 do OddsHunter com integração ao MongoDB.")
 st.sidebar.markdown("Dados de oportunidades de arbitragem em tempo real.")
+
+# Adicionar seção de segurança
+with st.sidebar.expander("🔒 Segurança"):
+    st.markdown("### Verificações de Segurança")
+    
+    # Verificar segurança novamente (mostrar na UI)
+    security_result = check_for_exposed_credentials(show_warning=True)
+    
+    # Mostrar recomendações de segurança
+    if st.checkbox("Mostrar recomendações de segurança"):
+        display_security_recommendations()
+
+# Adicionar seção de variáveis de ambiente
+with st.sidebar.expander("🔑 Variáveis de Ambiente"):
+    display_environment_variables()

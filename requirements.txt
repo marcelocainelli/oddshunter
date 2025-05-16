@@ -4,5 +4,4 @@ pandas
 numpy
 pillow
 playwright
-pymongo
-pymongo
+pymongo>=4.0.0
