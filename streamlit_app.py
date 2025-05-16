@@ -7,6 +7,7 @@ import json
 from datetime import datetime
 import odds_api_simulator as api # Mantém o simulador de dados
 from PIL import Image # Para carregar o logo
+import subprocess
 
 # --- Identidade Visual OddsHunter ---
 LOGO_PATH = "logo_oddshunter_v1.png"  # Caminho relativo para o Streamlit Cloud
@@ -194,12 +195,19 @@ current_time = time.time()
 should_refresh = manual_refresh or (auto_refresh and (current_time - st.session_state.last_refresh) > refresh_interval)
 
 if should_refresh:
-    with st.spinner("Buscando dados de odds..."):
-        odds_data = api.fetch_live_odds_simulated()
-        st.session_state.odds_data = odds_data
-        oportunidades = encontrar_oportunidades_arbitragem_reais(odds_data, investimento_usuario)
-        st.session_state.oportunidades = oportunidades
-        st.session_state.last_refresh = current_time
+    if manual_refresh:
+        with st.spinner("Executando scraping e atualizando dados do Oddspedia..."):
+            try:
+                subprocess.run(["python", "oddspedia_surebets_playwright.py"], check=True)
+            except Exception as e:
+                st.error(f"Erro ao executar o script de scraping: {e}")
+    with st.spinner("Carregando dados de surebets do CSV..."):
+        try:
+            df = pd.read_csv("surebets_oddspedia.csv")
+            # Aqui você pode atualizar o session_state ou variáveis globais conforme sua lógica
+            # Exemplo: st.session_state.surebets_df = df
+        except Exception as e:
+            st.error(f"Erro ao carregar CSV: {e}")
     st.caption(f"Última atualização: {datetime.fromtimestamp(current_time).strftime('%H:%M:%S')}")
 
 st.markdown(f"<h2 style='color:{COR_TEXTO_BRANCO};'>🚨 Oportunidades de Arbitragem</h2>", unsafe_allow_html=True)
