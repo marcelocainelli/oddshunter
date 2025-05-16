@@ -530,9 +530,9 @@ with st.sidebar.expander("Configurações do MongoDB"):
         # Mostrar URI atual de forma mascarada
         masked_uri = mask_mongodb_uri(get_mongodb_atlas_uri())
         st.info(f"URI atual: {masked_uri}")
-        
-        # Campo para nova URI com tipo password        new_uri = st.text_input(
-            "Nova MongoDB Atlas URI:", 
+        # Campo para nova URI com tipo password
+        new_uri = st.text_input(
+            "Nova MongoDB Atlas URI:",
             value="",
             type="password",
             placeholder="mongodb+srv://usuário:senha@cluster.exemplo.mongodb.net/?opções"
@@ -634,7 +634,8 @@ with st.sidebar.expander("Configurações do MongoDB"):
                 # Mascarar senha se houver autenticação
                 if usar_autenticacao and mongodb_senha:
                     uri_masked = mongodb_uri.replace(mongodb_senha, "*" * len(mongodb_senha))
-                    st.info(f"URI: {uri_masked}")                else:
+                    st.info(f"URI: {uri_masked}")                
+                else:
                     st.info(f"URI: {mongodb_uri}")
     
     with col2:
